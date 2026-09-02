@@ -1,0 +1,39 @@
+name: 'Setup Kube'
+description: 'Install helm + kubectl and configure cluster access from a base64 kubeconfig'
+
+inputs:
+  kubeconfig_b64:
+    description: 'Base64-encoded kubeconfig for the target cluster'
+    required: true
+  helm_version:
+    description: 'Helm version to install'
+    required: false
+    default: 'v3.16.4'
+  kubectl_version:
+    description: 'kubectl version to install'
+    required: false
+    default: 'latest'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install Helm
+      uses: azure/setup-helm@v4
+      with:
+        version: ${{ inputs.helm_version }}
+
+    - name: Install kubectl
+      uses: azure/setup-kubectl@v4
+      with:
+        version: ${{ inputs.kubectl_version }}
+
+    - name: Configure kubeconfig
+      shell: bash
+      run: |
+        KUBECONFIG_PATH="$RUNNER_TEMP/kubeconfig"
+        echo "$KUBECONFIG_B64" | base64 -d > "$KUBECONFIG_PATH"
+        chmod 600 "$KUBECONFIG_PATH"
+        echo "KUBECONFIG=$KUBECONFIG_PATH" >> "$GITHUB_ENV"
+        KUBECONFIG="$KUBECONFIG_PATH" kubectl get nodes
+      env:
+        KUBECONFIG_B64: ${{ inputs.kubeconfig_b64 }}

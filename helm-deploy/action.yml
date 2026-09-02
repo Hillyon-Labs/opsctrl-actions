@@ -1,0 +1,74 @@
+name: 'Helm Deploy'
+description: 'helm upgrade --install a chart from the checkout with layered values files'
+
+inputs:
+  release:
+    description: 'Helm release name'
+    required: true
+  chart_path:
+    description: 'Path to the chart directory in the checkout'
+    required: true
+  namespace:
+    description: 'Target namespace'
+    required: true
+  values_files:
+    description: 'Newline-separated values files, applied in order'
+    required: false
+    default: ''
+  secrets_values_b64:
+    description: 'Optional base64-encoded secrets values yaml, applied last'
+    required: false
+    default: ''
+  set:
+    description: 'Newline-separated key=value overrides (e.g. image.tag=uat-abc1234)'
+    required: false
+    default: ''
+  timeout:
+    description: 'Helm --timeout'
+    required: false
+    default: '10m'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Deploy
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        ARGS=()
+        while IFS= read -r f; do
+          [ -z "$f" ] && continue
+          ARGS+=(--values "$f")
+        done <<< "$VALUES_FILES"
+
+        if [ -n "$SECRETS_VALUES_B64" ]; then
+          SECRETS_FILE="$RUNNER_TEMP/secrets-values.yaml"
+          echo "$SECRETS_VALUES_B64" | base64 -d > "$SECRETS_FILE"
+          chmod 600 "$SECRETS_FILE"
+          ARGS+=(--values "$SECRETS_FILE")
+        fi
+
+        while IFS= read -r kv; do
+          [ -z "$kv" ] && continue
+          ARGS+=(--set "$kv")
+        done <<< "$SET_OVERRIDES"
+
+        helm dependency build "$CHART_PATH"
+
+        helm upgrade --install "$RELEASE" "$CHART_PATH" \
+          --namespace "$NAMESPACE" \
+          --create-namespace \
+          "${ARGS[@]}" \
+          --wait \
+          --timeout "$TIMEOUT"
+
+        helm status "$RELEASE" --namespace "$NAMESPACE"
+      env:
+        RELEASE: ${{ inputs.release }}
+        CHART_PATH: ${{ inputs.chart_path }}
+        NAMESPACE: ${{ inputs.namespace }}
+        VALUES_FILES: ${{ inputs.values_files }}
+        SECRETS_VALUES_B64: ${{ inputs.secrets_values_b64 }}
+        SET_OVERRIDES: ${{ inputs.set }}
+        TIMEOUT: ${{ inputs.timeout }}

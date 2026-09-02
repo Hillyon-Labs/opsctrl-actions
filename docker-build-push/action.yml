@@ -1,0 +1,74 @@
+name: 'Docker Build & Push'
+description: 'Build an image with buildx and push it to Docker Hub'
+
+inputs:
+  image:
+    description: 'Image repository, e.g. opsctrl/opsctrl_portal'
+    required: true
+  tags:
+    description: 'Newline-separated list of tags, e.g. uat-abc1234'
+    required: true
+  build_args:
+    description: 'Newline-separated KEY=VALUE build args'
+    required: false
+    default: ''
+  dockerhub_username:
+    description: 'Docker Hub username'
+    required: true
+  dockerhub_token:
+    description: 'Docker Hub access token (read+write)'
+    required: true
+  context:
+    description: 'Docker build context'
+    required: false
+    default: '.'
+  platforms:
+    description: 'Target platforms'
+    required: false
+    default: 'linux/amd64'
+
+outputs:
+  tags:
+    description: 'Fully-qualified image refs that were pushed (comma-separated)'
+    value: ${{ steps.refs.outputs.tags }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ inputs.dockerhub_username }}
+        password: ${{ inputs.dockerhub_token }}
+
+    - name: Set up Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Compose image refs
+      id: refs
+      shell: bash
+      run: |
+        REFS=""
+        while IFS= read -r tag; do
+          [ -z "$tag" ] && continue
+          REFS="${REFS}${REFS:+,}${IMAGE}:${tag}"
+        done <<< "$TAGS"
+        if [ -z "$REFS" ]; then
+          echo "::error::no tags provided"
+          exit 1
+        fi
+        echo "tags=$REFS" >> "$GITHUB_OUTPUT"
+      env:
+        IMAGE: ${{ inputs.image }}
+        TAGS: ${{ inputs.tags }}
+
+    - name: Build and push
+      uses: docker/build-push-action@v6
+      with:
+        context: ${{ inputs.context }}
+        platforms: ${{ inputs.platforms }}
+        push: true
+        tags: ${{ steps.refs.outputs.tags }}
+        build-args: ${{ inputs.build_args }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
