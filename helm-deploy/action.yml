@@ -54,19 +54,22 @@ runs:
           ARGS+=(--set "$kv")
         done <<< "$SET_OVERRIDES"
 
-        # Register any https chart repos referenced by Chart.lock so
-        # `helm dependency build` can verify them on a clean runner.
-        if [ -f "$CHART_PATH/Chart.lock" ]; then
-          grep -E '^\s*repository:' "$CHART_PATH/Chart.lock" | awk '{print $2}' | sort -u | while IFS= read -r repo; do
-            case "$repo" in
-              http://*|https://*)
-                helm repo add "dep-$(echo -n "$repo" | shasum | cut -c1-8)" "$repo" --force-update
-                ;;
-            esac
-          done
+        if ls "$CHART_PATH"/charts/*.tgz >/dev/null 2>&1; then
+          echo "Using committed chart dependencies in $CHART_PATH/charts/"
+        else
+          # Register any https chart repos referenced by Chart.lock so
+          # `helm dependency build` can fetch them on a clean runner.
+          if [ -f "$CHART_PATH/Chart.lock" ]; then
+            grep -E '^\s*repository:' "$CHART_PATH/Chart.lock" | awk '{print $2}' | sort -u | while IFS= read -r repo; do
+              case "$repo" in
+                http://*|https://*)
+                  helm repo add "dep-$(echo -n "$repo" | shasum | cut -c1-8)" "$repo" --force-update
+                  ;;
+              esac
+            done
+          fi
+          helm dependency build "$CHART_PATH"
         fi
-
-        helm dependency build "$CHART_PATH"
 
         helm upgrade --install "$RELEASE" "$CHART_PATH" \
           --namespace "$NAMESPACE" \
